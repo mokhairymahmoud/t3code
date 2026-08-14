@@ -4,6 +4,7 @@ import {
   CursorSettings,
   GithubCopilotSettings,
   GrokSettings,
+  KiroSettings,
   OpenCodeSettings,
   ProviderDriverKind,
 } from "@t3tools/contracts";
@@ -13,6 +14,7 @@ import {
   CursorIcon,
   GithubCopilotIcon,
   GrokIcon,
+  KiroIcon,
   type Icon,
   OpenAI,
   OpenCodeIcon,
@@ -76,6 +78,13 @@ export const PROVIDER_CLIENT_DEFINITIONS: readonly ProviderClientDefinition[] = 
     icon: GithubCopilotIcon,
     badgeLabel: "Early Access",
     settingsSchema: GithubCopilotSettings,
+  },
+  {
+    value: ProviderDriverKind.make("kiro"),
+    label: "Kiro",
+    icon: KiroIcon,
+    badgeLabel: "Early Access",
+    settingsSchema: KiroSettings,
   },
   {
     value: ProviderDriverKind.make("opencode"),

@@ -16,6 +16,7 @@ orchestration layer does not know which one is behind a thread.
 | `cursor`        | [`Drivers/CursorDriver.ts`][cursor]               |
 | `grok`          | [`Drivers/GrokDriver.ts`][grok]                   |
 | `githubCopilot` | [`Drivers/GithubCopilotDriver.ts`][githubcopilot] |
+| `kiro`          | [`Drivers/KiroDriver.ts`][kiro]                   |
 | `opencode`      | [`Drivers/OpenCodeDriver.ts`][opencode]           |
 
 Each driver declares its `driverKind`, a `configSchema`, and a `create` function that builds an
@@ -82,6 +83,7 @@ when a request opens (approval) or user input is requested, via
 [cursor]: ../../apps/server/src/provider/Drivers/CursorDriver.ts
 [grok]: ../../apps/server/src/provider/Drivers/GrokDriver.ts
 [githubcopilot]: ../../apps/server/src/provider/Drivers/GithubCopilotDriver.ts
+[kiro]: ../../apps/server/src/provider/Drivers/KiroDriver.ts
 [opencode]: ../../apps/server/src/provider/Drivers/OpenCodeDriver.ts
 [adapter]: ../../apps/server/src/provider/Services/ProviderAdapter.ts
 [instances]: ../../apps/server/src/provider/Services/ProviderInstanceRegistry.ts

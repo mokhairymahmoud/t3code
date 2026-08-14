@@ -60,6 +60,15 @@ export function ProviderIcon(props: ProviderIconProps) {
     );
   }
 
+  if (props.provider === "kiro") {
+    return (
+      <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+        <Path fill="#9046FF" d="M2 2h20v20H2z" />
+        <Path fill="#fff" d="M6 5h4v5l4-5h4l-5 6 5 8h-4l-3-5-1 1v4H6V5z" />
+      </Svg>
+    );
+  }
+
   if (props.provider === "opencode") {
     return (
       <Svg width={size} height={size} viewBox="0 0 32 40" fill="none">

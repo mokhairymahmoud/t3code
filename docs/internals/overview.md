@@ -24,7 +24,7 @@ there, never in the client.
                    │ per-driver transport
 ┌──────────────────▼─────────────────────────────┐
 │ Agent CLIs: Codex, Claude, Cursor, Grok,       │
-│ GitHub Copilot, OpenCode                       │
+│ GitHub Copilot, Kiro, OpenCode                 │
 └────────────────────────────────────────────────┘
 ```
 
