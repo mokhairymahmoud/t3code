@@ -1,5 +1,6 @@
 import { ProviderDriverKind } from "@t3tools/contracts";
 import {
+  ACPRegistryIcon,
   ClaudeAI,
   CursorIcon,
   GithubCopilotIcon,
@@ -19,6 +20,7 @@ export const PROVIDER_ICON_BY_PROVIDER: Partial<Record<ProviderDriverKind, Icon>
   [ProviderDriverKind.make("grok")]: GrokIcon,
   [ProviderDriverKind.make("githubCopilot")]: GithubCopilotIcon,
   [ProviderDriverKind.make("kiro")]: KiroIcon,
+  [ProviderDriverKind.make("agentHarness")]: ACPRegistryIcon,
 };
 
 function isAvailableProviderOption(option: (typeof PROVIDER_OPTIONS)[number]): option is {

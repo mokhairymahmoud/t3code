@@ -20,6 +20,7 @@
  *
  * @module provider/builtInDrivers
  */
+import { AgentHarnessDriver, type AgentHarnessDriverEnv } from "./Drivers/AgentHarnessDriver.ts";
 import { ClaudeDriver, type ClaudeDriverEnv } from "./Drivers/ClaudeDriver.ts";
 import { CodexDriver, type CodexDriverEnv } from "./Drivers/CodexDriver.ts";
 import { CursorDriver, type CursorDriverEnv } from "./Drivers/CursorDriver.ts";
@@ -35,6 +36,7 @@ import type { AnyProviderDriver } from "./ProviderDriver.ts";
  * layer must provide every service in this union.
  */
 export type BuiltInDriversEnv =
+  | AgentHarnessDriverEnv
   | ClaudeDriverEnv
   | CodexDriverEnv
   | CursorDriverEnv
@@ -56,4 +58,5 @@ export const BUILT_IN_DRIVERS: ReadonlyArray<AnyProviderDriver<BuiltInDriversEnv
   GithubCopilotDriver,
   KiroDriver,
   OpenCodeDriver,
+  AgentHarnessDriver,
 ];

@@ -14,7 +14,8 @@ export type TextGenerationProvider =
   | "cursor"
   | "grok"
   | "kiro"
-  | "opencode";
+  | "opencode"
+  | "agentHarness";
 
 export interface CommitMessageGenerationInput {
   cwd: string;

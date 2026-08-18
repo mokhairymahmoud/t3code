@@ -1,4 +1,5 @@
 import {
+  AgentHarnessSettings,
   ClaudeSettings,
   CodexSettings,
   CursorSettings,
@@ -10,6 +11,7 @@ import {
 } from "@t3tools/contracts";
 import type * as Schema from "effect/Schema";
 import {
+  ACPRegistryIcon,
   ClaudeAI,
   CursorIcon,
   GithubCopilotIcon,
@@ -91,6 +93,12 @@ export const PROVIDER_CLIENT_DEFINITIONS: readonly ProviderClientDefinition[] = 
     label: "OpenCode",
     icon: OpenCodeIcon,
     settingsSchema: OpenCodeSettings,
+  },
+  {
+    value: ProviderDriverKind.make("agentHarness"),
+    label: "Agent Harness",
+    icon: ACPRegistryIcon,
+    settingsSchema: AgentHarnessSettings,
   },
 ];
 

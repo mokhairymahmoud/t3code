@@ -478,6 +478,30 @@ export const KiroSettings = makeProviderSettingsSchema(
 );
 export type KiroSettings = typeof KiroSettings.Type;
 
+export const AgentHarnessSettings = makeProviderSettingsSchema(
+  {
+    enabled: Schema.Boolean.pipe(
+      Schema.withDecodingDefault(Effect.succeed(false)),
+      Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
+    ),
+    binaryPath: makeBinaryPathSetting("agent-harness").pipe(
+      Schema.annotateKey({
+        title: "Binary path",
+        description: "Path to the agent-harness binary.",
+        providerSettingsForm: { placeholder: "agent-harness", clearWhenEmpty: "omit" },
+      }),
+    ),
+    customModels: Schema.Array(Schema.String).pipe(
+      Schema.withDecodingDefault(Effect.succeed([])),
+      Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
+    ),
+  },
+  {
+    order: ["binaryPath"],
+  },
+);
+export type AgentHarnessSettings = typeof AgentHarnessSettings.Type;
+
 export const OpenCodeSettings = makeProviderSettingsSchema(
   {
     enabled: Schema.Boolean.pipe(
@@ -659,6 +683,7 @@ export const ServerSettings = Schema.Struct({
     grok: GrokSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
     githubCopilot: GithubCopilotSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
     kiro: KiroSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
+    agentHarness: AgentHarnessSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
     opencode: OpenCodeSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   }).pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   // New driver-agnostic instance map. Keyed by `ProviderInstanceId`; values
@@ -768,6 +793,12 @@ const KiroSettingsPatch = Schema.Struct({
   customModels: Schema.optionalKey(Schema.Array(Schema.String)),
 });
 
+const AgentHarnessSettingsPatch = Schema.Struct({
+  enabled: Schema.optionalKey(Schema.Boolean),
+  binaryPath: Schema.optionalKey(TrimmedString),
+  customModels: Schema.optionalKey(Schema.Array(Schema.String)),
+});
+
 const OpenCodeSettingsPatch = Schema.Struct({
   enabled: Schema.optionalKey(Schema.Boolean),
   binaryPath: Schema.optionalKey(TrimmedString),
@@ -817,6 +848,7 @@ export const ServerSettingsPatch = Schema.Struct({
       grok: Schema.optionalKey(GrokSettingsPatch),
       githubCopilot: Schema.optionalKey(GithubCopilotSettingsPatch),
       kiro: Schema.optionalKey(KiroSettingsPatch),
+      agentHarness: Schema.optionalKey(AgentHarnessSettingsPatch),
       opencode: Schema.optionalKey(OpenCodeSettingsPatch),
     }),
   ),

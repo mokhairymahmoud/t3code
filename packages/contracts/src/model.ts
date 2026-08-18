@@ -133,6 +133,7 @@ const CURSOR_DRIVER_KIND = ProviderDriverKind.make("cursor");
 const GROK_DRIVER_KIND = ProviderDriverKind.make("grok");
 const GITHUB_COPILOT_DRIVER_KIND = ProviderDriverKind.make("githubCopilot");
 const OPENCODE_DRIVER_KIND = ProviderDriverKind.make("opencode");
+const AGENT_HARNESS_DRIVER_KIND = ProviderDriverKind.make("agentHarness");
 
 export const DEFAULT_MODEL = "gpt-5.6-sol";
 
@@ -226,4 +227,5 @@ export const PROVIDER_DISPLAY_NAMES: Partial<Record<ProviderDriverKind, string>>
   [GROK_DRIVER_KIND]: "Grok",
   [GITHUB_COPILOT_DRIVER_KIND]: "GitHub Copilot",
   [OPENCODE_DRIVER_KIND]: "OpenCode",
+  [AGENT_HARNESS_DRIVER_KIND]: "Agent Harness",
 };
