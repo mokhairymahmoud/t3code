@@ -648,6 +648,45 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
         ]);
       });
 
+      it("drops stale Agent Harness models after a successful model probe", () => {
+        const previousProvider = {
+          instanceId: ProviderInstanceId.make("agentHarness"),
+          driver: ProviderDriverKind.make("agentHarness"),
+          status: "ready",
+          enabled: true,
+          installed: true,
+          auth: { status: "unknown" },
+          checkedAt: "2026-08-18T00:00:00.000Z",
+          version: null,
+          models: [
+            {
+              slug: "gpt-5.6",
+              name: "GPT-5.6",
+              isCustom: false,
+              capabilities: null,
+            },
+          ],
+          slashCommands: [],
+          skills: [],
+        } as const satisfies ServerProvider;
+        const refreshedProvider = {
+          ...previousProvider,
+          checkedAt: "2026-08-18T00:01:00.000Z",
+          models: [
+            {
+              slug: "gpt-5.6-luna",
+              name: "GPT-5.6 Luna",
+              isCustom: false,
+              capabilities: null,
+            },
+          ],
+        } satisfies ServerProvider;
+
+        assert.deepStrictEqual(mergeProviderSnapshot(previousProvider, refreshedProvider).models, [
+          ...refreshedProvider.models,
+        ]);
+      });
+
       it("retains stale OpenCode models when a refresh fails", () => {
         const previousProvider = {
           instanceId: ProviderInstanceId.make("opencode"),

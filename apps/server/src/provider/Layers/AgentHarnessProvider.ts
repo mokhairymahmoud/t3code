@@ -183,10 +183,12 @@ export const checkAgentHarnessProviderStatus = Effect.fn("checkAgentHarnessProvi
     }).pipe(Effect.timeoutOption(MODELS_PROBE_TIMEOUT_MS), Effect.result);
 
     let models: ReadonlyArray<ServerProviderModel> = [];
+    let modelProbeSucceeded = false;
     if (Result.isSuccess(modelsResult) && Option.isSome(modelsResult.success)) {
       const output = modelsResult.success.value;
       if (output.code === 0) {
         models = parseModelsOutput(output.stdout);
+        modelProbeSucceeded = true;
       }
     }
 
@@ -198,12 +200,13 @@ export const checkAgentHarnessProviderStatus = Effect.fn("checkAgentHarnessProvi
       probe: {
         installed: true,
         version: null,
-        status: "ready",
+        status: modelProbeSucceeded ? "ready" : "warning",
         auth: { status: "unknown" },
-        message:
-          models.length > 0
+        message: modelProbeSucceeded
+          ? models.length > 0
             ? `Agent Harness is ready with ${models.length} model${models.length === 1 ? "" : "s"}.`
-            : "Agent Harness is ready.",
+            : "Agent Harness is ready."
+          : "Agent Harness is reachable, but model discovery failed; retaining the last known model list.",
       },
     });
   },

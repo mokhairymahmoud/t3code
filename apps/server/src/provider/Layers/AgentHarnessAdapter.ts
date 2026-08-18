@@ -113,12 +113,17 @@ function buildAgentHarnessAcpSpawnInput(
   settings: AgentHarnessSettings,
   cwd: string,
   environment?: NodeJS.ProcessEnv,
+  model?: string,
 ): AcpSessionRuntime.AcpSpawnInput {
+  // AgentHarness reads its model only at process startup. T3 Code's picker
+  // supplies the selected deployment on the session, so carry it into this
+  // child process rather than silently falling back to the parent's .env.
+  const env = model ? { ...environment, AZURE_OPENAI_MODEL: model } : environment;
   return {
     command: settings.binaryPath || "agent-harness",
     args: ["acp"],
     cwd,
-    ...(environment ? { env: environment } : {}),
+    ...(env ? { env } : {}),
   };
 }
 
@@ -216,7 +221,12 @@ export const makeAgentHarnessAdapter = Effect.fn("makeAgentHarnessAdapter")(func
       const acp = yield* Effect.gen(function* () {
         const acpContext = yield* Layer.build(
           AcpSessionRuntime.layer({
-            spawn: buildAgentHarnessAcpSpawnInput(settings, cwd, options?.environment),
+            spawn: buildAgentHarnessAcpSpawnInput(
+              settings,
+              cwd,
+              options?.environment,
+              input.modelSelection?.model,
+            ),
             cwd,
             clientInfo: { name: "t3code", version: "1.0.0" },
             ...(resumeSessionId ? { resumeSessionId } : {}),
@@ -334,7 +344,7 @@ export const makeAgentHarnessAdapter = Effect.fn("makeAgentHarnessAdapter")(func
           status: "ready",
           runtimeMode: input.runtimeMode,
           cwd,
-          model: "default",
+          model: input.modelSelection?.model ?? "default",
           threadId: input.threadId,
           resumeCursor: {
             schemaVersion: AGENT_HARNESS_RESUME_VERSION,

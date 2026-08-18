@@ -79,6 +79,13 @@ const hasModelCapabilities = (model: ServerProvider["models"][number]): boolean 
   (model.capabilities?.optionDescriptors?.length ?? 0) > 0;
 
 const shouldRetainMissingProviderModels = (provider: ServerProvider): boolean => {
+  if (provider.driver === ProviderDriverKind.make("agentHarness")) {
+    // `agent-harness models` is an authoritative local registry. Once that
+    // command succeeds, keeping entries absent from its output leaves stale
+    // and duplicate models in the picker indefinitely.
+    return provider.status !== "ready";
+  }
+
   if (provider.driver !== ProviderDriverKind.make("opencode")) {
     return true;
   }
