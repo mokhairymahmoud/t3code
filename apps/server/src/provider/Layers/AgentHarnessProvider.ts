@@ -31,8 +31,10 @@ const MODELS_PROBE_TIMEOUT_MS = 8_000;
 const DEFAULT_MODEL_CAPABILITIES = createModelCapabilities({ optionDescriptors: [] });
 
 interface AgentHarnessModelDescriptor {
-  readonly slug: string;
-  readonly name: string;
+  readonly slug?: string;
+  readonly name?: string;
+  readonly deploymentName?: string;
+  readonly displayName?: string;
   readonly contextWindow?: number;
 }
 
@@ -45,12 +47,13 @@ function parseModelsOutput(stdout: string): ReadonlyArray<ServerProviderModel> {
         (entry: unknown): entry is AgentHarnessModelDescriptor =>
           typeof entry === "object" &&
           entry !== null &&
-          typeof (entry as Record<string, unknown>).slug === "string" &&
-          typeof (entry as Record<string, unknown>).name === "string",
+          // Accept either { slug, name } or { deploymentName, displayName }
+          (typeof (entry as Record<string, unknown>).slug === "string" ||
+            typeof (entry as Record<string, unknown>).deploymentName === "string"),
       )
       .map((entry) => ({
-        slug: entry.slug,
-        name: entry.name,
+        slug: entry.slug ?? entry.deploymentName ?? "unknown",
+        name: entry.name ?? entry.displayName ?? entry.slug ?? entry.deploymentName ?? "Unknown",
         isCustom: false,
         capabilities: DEFAULT_MODEL_CAPABILITIES,
       }));
@@ -173,9 +176,9 @@ export const checkAgentHarnessProviderStatus = Effect.fn("checkAgentHarnessProvi
       });
     }
 
-    // Step 2: Discover models via `agent-harness models`
+    // Step 2: Discover models via `agent-harness models --json`
     const modelsResult = yield* Effect.gen(function* () {
-      const spawn = yield* resolveSpawnCommand(command, ["models"], { env: environment });
+      const spawn = yield* resolveSpawnCommand(command, ["models", "--json"], { env: environment });
       return yield* spawnAndCollect(
         command,
         ChildProcess.make(spawn.command, spawn.args, { env: environment, shell: spawn.shell }),

@@ -336,6 +336,23 @@ describe("AcpRuntimeModel", () => {
     ]);
   });
 
+  it("preserves an empty ACP plan so clients clear stale tasks", () => {
+    const result = parseSessionUpdateEvent({
+      sessionId: "session-1",
+      update: {
+        sessionUpdate: "plan",
+        entries: [],
+      },
+    } satisfies EffectAcpSchema.SessionNotification);
+
+    expect(result.events).toMatchObject([
+      {
+        _tag: "PlanUpdated",
+        payload: { plan: [] },
+      },
+    ]);
+  });
+
   it("keeps permission request parsing compatible with loose extension payloads", () => {
     const request = parsePermissionRequest({
       sessionId: "session-1",

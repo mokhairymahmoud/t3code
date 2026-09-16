@@ -529,15 +529,15 @@ export function parseSessionUpdateEvent(params: EffectAcpSchema.SessionNotificat
         step: entry.content.trim().length > 0 ? entry.content.trim() : `Step ${index + 1}`,
         status: normalizePlanStepStatus(entry.status),
       }));
-      if (plan.length > 0) {
-        events.push({
-          _tag: "PlanUpdated",
-          payload: {
-            plan,
-          },
-          rawPayload: params,
-        });
-      }
+      // An empty ACP plan is a meaningful snapshot: the agent cleared its
+      // task list, so clients must clear rather than retain a stale plan.
+      events.push({
+        _tag: "PlanUpdated",
+        payload: {
+          plan,
+        },
+        rawPayload: params,
+      });
       break;
     }
     case "tool_call": {
