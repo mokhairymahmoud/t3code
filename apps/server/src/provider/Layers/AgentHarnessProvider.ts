@@ -19,6 +19,7 @@ import {
   type ServerProviderDraft,
 } from "../providerSnapshot.ts";
 import type { ProviderMaintenanceCapabilities } from "../providerMaintenance.ts";
+import { resolveAgentHarnessBinaryPath } from "../agentHarnessCommand.ts";
 
 const AGENT_HARNESS_PRESENTATION = {
   displayName: "Agent Harness",
@@ -35,6 +36,8 @@ interface AgentHarnessModelDescriptor {
   readonly name?: string;
   readonly deploymentName?: string;
   readonly displayName?: string;
+  readonly deployment_name?: string;
+  readonly display_name?: string;
   readonly contextWindow?: number;
 }
 
@@ -49,11 +52,19 @@ function parseModelsOutput(stdout: string): ReadonlyArray<ServerProviderModel> {
           entry !== null &&
           // Accept either { slug, name } or { deploymentName, displayName }
           (typeof (entry as Record<string, unknown>).slug === "string" ||
-            typeof (entry as Record<string, unknown>).deploymentName === "string"),
+            typeof (entry as Record<string, unknown>).deploymentName === "string" ||
+            typeof (entry as Record<string, unknown>).deployment_name === "string"),
       )
       .map((entry) => ({
-        slug: entry.slug ?? entry.deploymentName ?? "unknown",
-        name: entry.name ?? entry.displayName ?? entry.slug ?? entry.deploymentName ?? "Unknown",
+        slug: entry.slug ?? entry.deploymentName ?? entry.deployment_name ?? "unknown",
+        name:
+          entry.name ??
+          entry.displayName ??
+          entry.display_name ??
+          entry.slug ??
+          entry.deploymentName ??
+          entry.deployment_name ??
+          "Unknown",
         isCustom: false,
         capabilities: DEFAULT_MODEL_CAPABILITIES,
       }));
@@ -113,7 +124,7 @@ export const checkAgentHarnessProviderStatus = Effect.fn("checkAgentHarnessProvi
       });
     }
 
-    const command = settings.binaryPath || "agent-harness";
+    const command = resolveAgentHarnessBinaryPath(settings.binaryPath);
 
     // Step 1: Check binary exists via --help
     const helpResult = yield* Effect.gen(function* () {
@@ -137,7 +148,7 @@ export const checkAgentHarnessProviderStatus = Effect.fn("checkAgentHarnessProvi
           status: "error",
           auth: { status: "unknown" },
           message: isCommandMissingCause(error)
-            ? "Agent Harness (`agent-harness`) is not installed or not on PATH."
+            ? "Agent Harness (`agent-harness-rs`) is not installed or not on PATH."
             : "Failed to execute Agent Harness health check.",
         },
       });

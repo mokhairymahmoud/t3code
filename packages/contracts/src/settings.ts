@@ -484,11 +484,11 @@ export const AgentHarnessSettings = makeProviderSettingsSchema(
       Schema.withDecodingDefault(Effect.succeed(false)),
       Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
     ),
-    binaryPath: makeBinaryPathSetting("agent-harness").pipe(
+    binaryPath: makeBinaryPathSetting("agent-harness-rs").pipe(
       Schema.annotateKey({
         title: "Binary path",
         description: "Path to the agent-harness binary.",
-        providerSettingsForm: { placeholder: "agent-harness", clearWhenEmpty: "omit" },
+        providerSettingsForm: { placeholder: "agent-harness-rs", clearWhenEmpty: "omit" },
       }),
     ),
     customModels: Schema.Array(Schema.String).pipe(

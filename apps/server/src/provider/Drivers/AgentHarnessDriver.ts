@@ -1,7 +1,7 @@
 /**
  * AgentHarnessDriver — `ProviderDriver` for the Agent Harness binary.
  *
- * Agent Harness exposes ACP over stdio via `agent-harness acp`. It resolves
+ * Agent Harness exposes ACP over stdio via `agent-harness-rs --acp --live`. It resolves
  * its own model from environment variables, so no model argument is passed on
  * the command line. No maintenance/update system is needed.
  *

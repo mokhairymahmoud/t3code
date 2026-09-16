@@ -1,7 +1,7 @@
 /**
  * AgentHarnessAdapter — ACP adapter for the Agent Harness binary.
  *
- * Agent Harness exposes ACP over stdio via `agent-harness acp`. The adapter
+ * Agent Harness exposes ACP over stdio via `agent-harness-rs --acp --live`. The adapter
  * spawns the binary, initializes a session, and routes prompt/event traffic
  * through the shared AcpSessionRuntime infrastructure.
  *
@@ -58,6 +58,7 @@ import {
 import { parsePermissionRequest } from "../acp/AcpRuntimeModel.ts";
 import type { ProviderAdapterShape } from "../Services/ProviderAdapter.ts";
 import type { ProviderAdapterError } from "../Errors.ts";
+import { resolveAgentHarnessBinaryPath } from "../agentHarnessCommand.ts";
 
 const PROVIDER = ProviderDriverKind.make("agentHarness");
 const AGENT_HARNESS_RESUME_VERSION = 1 as const;
@@ -120,8 +121,8 @@ function buildAgentHarnessAcpSpawnInput(
   // child process rather than silently falling back to the parent's .env.
   const env = model ? { ...environment, AZURE_OPENAI_MODEL: model } : environment;
   return {
-    command: settings.binaryPath || "agent-harness",
-    args: ["acp"],
+    command: resolveAgentHarnessBinaryPath(settings.binaryPath),
+    args: ["--acp", "--live"],
     cwd,
     ...(env ? { env } : {}),
   };
