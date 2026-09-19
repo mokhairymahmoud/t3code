@@ -29,7 +29,20 @@ const AGENT_HARNESS_PRESENTATION = {
 const VERSION_PROBE_TIMEOUT_MS = 4_000;
 const MODELS_PROBE_TIMEOUT_MS = 8_000;
 
-const DEFAULT_MODEL_CAPABILITIES = createModelCapabilities({ optionDescriptors: [] });
+const DEFAULT_MODEL_CAPABILITIES = createModelCapabilities({
+  optionDescriptors: [
+    {
+      id: "thinkingLevel",
+      type: "select",
+      label: "Thinking",
+      options: [
+        { id: "low", label: "Low" },
+        { id: "medium", label: "Medium", isDefault: true },
+        { id: "high", label: "High" },
+      ],
+    },
+  ],
+});
 
 interface AgentHarnessModelDescriptor {
   readonly slug?: string;

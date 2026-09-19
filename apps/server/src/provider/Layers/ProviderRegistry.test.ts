@@ -1842,11 +1842,13 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
               );
 
               assert.deepStrictEqual(providers.map((provider) => provider.instanceId).toSorted(), [
+                "agentHarness",
                 "claudeAgent",
                 "codex",
                 "cursor",
                 "githubCopilot",
                 "grok",
+                "kiro",
                 "opencode",
               ]);
               assert.strictEqual(cursorProvider?.enabled, false);

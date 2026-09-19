@@ -20,6 +20,7 @@ import {
   type ThreadId,
   TurnId,
 } from "@t3tools/contracts";
+import { getModelSelectionStringOptionValue } from "@t3tools/shared/model";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
@@ -27,10 +28,14 @@ import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
+import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as PubSub from "effect/PubSub";
+import * as Ref from "effect/Ref";
+import * as Semaphore from "effect/Semaphore";
 import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
+import * as SynchronizedRef from "effect/SynchronizedRef";
 import * as Layer from "effect/Layer";
 import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawner";
 import * as EffectAcpErrors from "effect-acp/errors";
@@ -84,6 +89,10 @@ interface AgentHarnessSessionContext {
   session: ProviderSession;
   turns: Array<{ id: TurnId; items: Array<unknown> }>;
   activeTurnId: TurnId | undefined;
+  /** Turns already interrupted; late ACP responses must not resurrect them. */
+  interruptedTurnIds: Set<TurnId>;
+  /** Prompts currently in flight. Multiple prompts are merged into one turn. */
+  promptsInFlight: number;
   stopped: boolean;
 }
 
@@ -115,11 +124,19 @@ function buildAgentHarnessAcpSpawnInput(
   cwd: string,
   environment?: NodeJS.ProcessEnv,
   model?: string,
+  thinkingLevel?: string,
 ): AcpSessionRuntime.AcpSpawnInput {
   // AgentHarness reads its model only at process startup. T3 Code's picker
   // supplies the selected deployment on the session, so carry it into this
   // child process rather than silently falling back to the parent's .env.
-  const env = model ? { ...environment, AZURE_OPENAI_MODEL: model } : environment;
+  const env =
+    model || thinkingLevel
+      ? {
+          ...environment,
+          ...(model ? { AZURE_OPENAI_MODEL: model } : {}),
+          ...(thinkingLevel ? { AGENTHARNESS_THINKING_LEVEL: thinkingLevel } : {}),
+        }
+      : environment;
   return {
     command: resolveAgentHarnessBinaryPath(settings.binaryPath),
     args: ["--acp", "--live"],
@@ -148,6 +165,7 @@ export const makeAgentHarnessAdapter = Effect.fn("makeAgentHarnessAdapter")(func
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
   const serverConfig = yield* ServerConfig;
   const sessions = new Map<ThreadId, AgentHarnessSessionContext>();
+  const threadLocksRef = yield* SynchronizedRef.make(new Map<string, Semaphore.Semaphore>());
   const events = yield* PubSub.unbounded<ProviderRuntimeEvent>();
   const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
   const randomId = crypto.randomUUIDv4.pipe(
@@ -165,6 +183,25 @@ export const makeAgentHarnessAdapter = Effect.fn("makeAgentHarnessAdapter")(func
     Effect.all({ eventId: Effect.map(randomId, EventId.make), createdAt: nowIso });
   const publish = (event: ProviderRuntimeEvent) =>
     PubSub.publish(events, event).pipe(Effect.asVoid);
+  const getThreadSemaphore = (threadId: string) =>
+    SynchronizedRef.modifyEffect(threadLocksRef, (current) => {
+      const existing: Option.Option<Semaphore.Semaphore> = Option.fromNullishOr(
+        current.get(threadId),
+      );
+      return Option.match(existing, {
+        onNone: () =>
+          Semaphore.make(1).pipe(
+            Effect.map((semaphore) => {
+              const next = new Map(current);
+              next.set(threadId, semaphore);
+              return [semaphore, next] as const;
+            }),
+          ),
+        onSome: (semaphore) => Effect.succeed([semaphore, current] as const),
+      });
+    });
+  const withThreadLock = <A, E, R>(threadId: string, effect: Effect.Effect<A, E, R>) =>
+    Effect.flatMap(getThreadSemaphore(threadId), (semaphore) => semaphore.withPermit(effect));
   const requireSession = (
     threadId: ThreadId,
   ): Effect.Effect<AgentHarnessSessionContext, ProviderAdapterSessionNotFoundError> => {
@@ -177,11 +214,32 @@ export const makeAgentHarnessAdapter = Effect.fn("makeAgentHarnessAdapter")(func
     Effect.gen(function* () {
       if (context.stopped) return;
       context.stopped = true;
+      const activeTurnId = context.activeTurnId;
+      context.interruptedTurnIds.clear();
+      context.promptsInFlight = 0;
+      context.activeTurnId = undefined;
+      if (activeTurnId) {
+        const { activeTurnId: _activeTurnId, ...ready } = context.session;
+        context.session = {
+          ...ready,
+          status: "ready",
+          updatedAt: yield* nowIso,
+        };
+        yield* publish({
+          type: "turn.completed",
+          ...(yield* stamp()),
+          provider: PROVIDER,
+          threadId: context.threadId,
+          turnId: activeTurnId,
+          payload: { state: "cancelled", stopReason: "cancelled" },
+        });
+      }
       yield* Effect.forEach(
         context.pendingApprovals.values(),
         (pending) => Deferred.succeed(pending.decision, "cancel").pipe(Effect.ignore),
         { discard: true },
       );
+      context.pendingApprovals.clear();
       if (context.notificationFiber) yield* Fiber.interrupt(context.notificationFiber);
       yield* Scope.close(context.scope, Exit.void).pipe(Effect.ignore);
       sessions.delete(context.threadId);
@@ -194,7 +252,9 @@ export const makeAgentHarnessAdapter = Effect.fn("makeAgentHarnessAdapter")(func
       });
     });
 
-  const startSession: AgentHarnessAdapterShape["startSession"] = (input) =>
+  const startSessionWithoutLock = (
+    input: Parameters<AgentHarnessAdapterShape["startSession"]>[0],
+  ) =>
     Effect.gen(function* () {
       if (input.provider !== undefined && input.provider !== PROVIDER) {
         return yield* new ProviderAdapterValidationError({
@@ -227,6 +287,9 @@ export const makeAgentHarnessAdapter = Effect.fn("makeAgentHarnessAdapter")(func
               cwd,
               options?.environment,
               input.modelSelection?.model,
+              input.modelSelection?.instanceId === instanceId
+                ? getModelSelectionStringOptionValue(input.modelSelection, "thinkingLevel")
+                : undefined,
             ),
             cwd,
             clientInfo: { name: "t3code", version: "1.0.0" },
@@ -337,6 +400,8 @@ export const makeAgentHarnessAdapter = Effect.fn("makeAgentHarnessAdapter")(func
         pendingApprovals,
         notificationFiber: undefined,
         activeTurnId: undefined,
+        interruptedTurnIds: new Set(),
+        promptsInFlight: 0,
         turns: [],
         stopped: false,
         session: {
@@ -358,6 +423,7 @@ export const makeAgentHarnessAdapter = Effect.fn("makeAgentHarnessAdapter")(func
       sessions.set(input.threadId, context);
       context.notificationFiber = yield* Stream.runForEach(acp.getEvents(), (event) =>
         Effect.gen(function* () {
+          if (context.stopped) return;
           if (event._tag === "EventStreamBarrier") {
             yield* Deferred.succeed(event.acknowledge, undefined);
             return;
@@ -451,105 +517,169 @@ export const makeAgentHarnessAdapter = Effect.fn("makeAgentHarnessAdapter")(func
       return context.session;
     }).pipe(Effect.scoped);
 
+  const startSession: AgentHarnessAdapterShape["startSession"] = (input) =>
+    withThreadLock(input.threadId, startSessionWithoutLock(input));
+
   const sendTurn: AgentHarnessAdapterShape["sendTurn"] = (input) =>
     Effect.gen(function* () {
-      const context = yield* requireSession(input.threadId);
-      if (context.activeTurnId) {
-        return yield* new ProviderAdapterValidationError({
-          provider: PROVIDER,
-          operation: "sendTurn",
-          issue: "Agent Harness is already processing a turn.",
-        });
-      }
-      const text = input.input?.trim();
-      const images = yield* Effect.forEach(input.attachments ?? [], (attachment) =>
+      const prepared = yield* withThreadLock(
+        input.threadId,
         Effect.gen(function* () {
-          const attachmentPath = resolveAttachmentPath({
-            attachmentsDir: serverConfig.attachmentsDir,
-            attachment,
-          });
-          if (!attachmentPath)
-            return yield* new ProviderAdapterRequestError({
-              provider: PROVIDER,
-              method: "session/prompt",
-              detail: `Invalid attachment id '${attachment.id}'.`,
-            });
-          const bytes = yield* fileSystem.readFile(attachmentPath).pipe(
-            Effect.mapError(
-              (cause) =>
-                new ProviderAdapterRequestError({
+          const context = yield* requireSession(input.threadId);
+          const text = input.input?.trim();
+          const images = yield* Effect.forEach(input.attachments ?? [], (attachment) =>
+            Effect.gen(function* () {
+              const attachmentPath = resolveAttachmentPath({
+                attachmentsDir: serverConfig.attachmentsDir,
+                attachment,
+              });
+              if (!attachmentPath)
+                return yield* new ProviderAdapterRequestError({
                   provider: PROVIDER,
                   method: "session/prompt",
-                  detail: cause.message,
-                  cause,
-                }),
-            ),
+                  detail: `Invalid attachment id '${attachment.id}'.`,
+                });
+              const bytes = yield* fileSystem.readFile(attachmentPath).pipe(
+                Effect.mapError(
+                  (cause) =>
+                    new ProviderAdapterRequestError({
+                      provider: PROVIDER,
+                      method: "session/prompt",
+                      detail: cause.message,
+                      cause,
+                    }),
+                ),
+              );
+              return {
+                type: "image" as const,
+                data: Buffer.from(bytes).toString("base64"),
+                mimeType: attachment.mimeType,
+              };
+            }),
           );
+          const prompt: Array<EffectAcpSchema.ContentBlock> = [
+            ...(text ? [{ type: "text" as const, text }] : []),
+            ...images,
+          ];
+          if (prompt.length === 0)
+            return yield* new ProviderAdapterValidationError({
+              provider: PROVIDER,
+              operation: "sendTurn",
+              issue: "Turn requires non-empty text or attachments.",
+            });
+
+          const steeringTurnId = context.promptsInFlight > 0 ? context.activeTurnId : undefined;
+          const turnId = steeringTurnId ?? TurnId.make(yield* randomId);
+          context.promptsInFlight += 1;
+          context.activeTurnId = turnId;
+          context.session = {
+            ...context.session,
+            status: steeringTurnId === undefined ? "connecting" : "running",
+            activeTurnId: turnId,
+            updatedAt: yield* nowIso,
+          };
+          if (steeringTurnId === undefined) {
+            context.interruptedTurnIds.delete(turnId);
+            yield* publish({
+              type: "turn.started",
+              ...(yield* stamp()),
+              provider: PROVIDER,
+              threadId: input.threadId,
+              turnId,
+              payload: { model: context.session.model },
+            });
+          }
           return {
-            type: "image" as const,
-            data: Buffer.from(bytes).toString("base64"),
-            mimeType: attachment.mimeType,
+            acp: context.acp,
+            acpSessionId: context.acpSessionId,
+            prompt,
+            turnId,
+            steeringTurnId,
           };
         }),
       );
-      const prompt: Array<EffectAcpSchema.ContentBlock> = [
-        ...(text ? [{ type: "text" as const, text }] : []),
-        ...images,
-      ];
-      if (prompt.length === 0)
-        return yield* new ProviderAdapterValidationError({
-          provider: PROVIDER,
-          operation: "sendTurn",
-          issue: "Turn requires non-empty text or attachments.",
-        });
-      const turnId = TurnId.make(yield* randomId);
-      context.activeTurnId = turnId;
-      context.session = {
-        ...context.session,
-        status: "running",
-        activeTurnId: turnId,
-        updatedAt: yield* nowIso,
-      };
-      yield* publish({
-        type: "turn.started",
-        ...(yield* stamp()),
-        provider: PROVIDER,
-        threadId: input.threadId,
-        turnId,
-        payload: { model: context.session.model },
-      });
-      const result = yield* context.acp
-        .prompt({ prompt })
-        .pipe(
-          Effect.mapError((cause) =>
-            mapAcpToAdapterError(PROVIDER, input.threadId, "session/prompt", cause),
-          ),
-        );
-      yield* context.acp.drainEvents;
-      context.turns.push({ id: turnId, items: [{ prompt, result }] });
-      context.activeTurnId = undefined;
-      const { activeTurnId: _activeTurnId, ...ready } = context.session;
-      context.session = { ...ready, status: "ready", updatedAt: yield* nowIso };
-      yield* publish({
-        type: "turn.completed",
-        ...(yield* stamp()),
-        provider: PROVIDER,
-        threadId: input.threadId,
-        turnId,
-        payload: {
-          state: result.stopReason === "cancelled" ? "cancelled" : "completed",
-          stopReason: result.stopReason,
-        },
-      });
-      return { threadId: input.threadId, turnId, resumeCursor: context.session.resumeCursor };
+
+      const promptSucceeded = yield* Ref.make(false);
+      const settleFailedPrompt = withThreadLock(
+        input.threadId,
+        Effect.gen(function* () {
+          const context = sessions.get(input.threadId);
+          if (!context || context.stopped || context.acpSessionId !== prepared.acpSessionId) return;
+          if (context.promptsInFlight > 0) context.promptsInFlight -= 1;
+          if (context.promptsInFlight === 0 && context.activeTurnId === prepared.turnId) {
+            context.activeTurnId = undefined;
+            const { activeTurnId: _activeTurnId, ...ready } = context.session;
+            context.session = { ...ready, status: "ready", updatedAt: yield* nowIso };
+          }
+        }),
+      );
+
+      const result = yield* prepared.acp.prompt({ prompt: prepared.prompt }).pipe(
+        Effect.tap(() => Ref.set(promptSucceeded, true)),
+        Effect.mapError((cause) =>
+          mapAcpToAdapterError(PROVIDER, input.threadId, "session/prompt", cause),
+        ),
+        Effect.ensuring(
+          Effect.gen(function* () {
+            if (yield* Ref.get(promptSucceeded)) return;
+            yield* settleFailedPrompt;
+          }),
+        ),
+      );
+
+      return yield* withThreadLock(
+        input.threadId,
+        Effect.gen(function* () {
+          const context = yield* requireSession(input.threadId);
+          if (context.acpSessionId !== prepared.acpSessionId) {
+            return yield* new ProviderAdapterRequestError({
+              provider: PROVIDER,
+              method: "session/prompt",
+              detail: "Agent Harness session changed before the turn completed.",
+            });
+          }
+          yield* context.acp.drainEvents;
+          const wasInterrupted = context.interruptedTurnIds.has(prepared.turnId);
+          context.interruptedTurnIds.delete(prepared.turnId);
+          if (context.promptsInFlight > 0) context.promptsInFlight -= 1;
+          context.turns.push({ id: prepared.turnId, items: [{ prompt: prepared.prompt, result }] });
+          if (context.promptsInFlight === 0 && context.activeTurnId === prepared.turnId) {
+            context.activeTurnId = undefined;
+            const { activeTurnId: _activeTurnId, ...ready } = context.session;
+            context.session = { ...ready, status: "ready", updatedAt: yield* nowIso };
+            yield* publish({
+              type: "turn.completed",
+              ...(yield* stamp()),
+              provider: PROVIDER,
+              threadId: input.threadId,
+              turnId: prepared.turnId,
+              payload: {
+                state:
+                  wasInterrupted || result.stopReason === "cancelled" ? "cancelled" : "completed",
+                stopReason: wasInterrupted ? "cancelled" : result.stopReason,
+              },
+            });
+          }
+          return {
+            threadId: input.threadId,
+            turnId: prepared.turnId,
+            resumeCursor: context.session.resumeCursor,
+          };
+        }),
+      );
     });
 
   const interruptTurn: AgentHarnessAdapterShape["interruptTurn"] = (threadId, turnId) =>
-    Effect.gen(function* () {
-      const context = yield* requireSession(threadId);
-      if (turnId !== undefined && context.activeTurnId !== turnId) return;
-      yield* context.acp.cancel.pipe(Effect.ignore);
-    });
+    withThreadLock(
+      threadId,
+      Effect.gen(function* () {
+        const context = yield* requireSession(threadId);
+        const activeTurnId = context.activeTurnId;
+        if (turnId !== undefined && activeTurnId !== turnId) return;
+        if (activeTurnId) context.interruptedTurnIds.add(activeTurnId);
+        yield* context.acp.cancel.pipe(Effect.ignore);
+      }),
+    );
   const respondToRequest: AgentHarnessAdapterShape["respondToRequest"] = (
     threadId,
     requestId,
@@ -578,7 +708,13 @@ export const makeAgentHarnessAdapter = Effect.fn("makeAgentHarnessAdapter")(func
       });
     });
   const stopSession: AgentHarnessAdapterShape["stopSession"] = (threadId) =>
-    requireSession(threadId).pipe(Effect.flatMap(closeSession));
+    withThreadLock(
+      threadId,
+      Effect.gen(function* () {
+        const context = yield* requireSession(threadId);
+        yield* closeSession(context);
+      }),
+    );
   const listSessions: AgentHarnessAdapterShape["listSessions"] = () =>
     Effect.sync(() => Array.from(sessions.values(), (context) => context.session));
   const hasSession: AgentHarnessAdapterShape["hasSession"] = (threadId) =>
@@ -595,7 +731,18 @@ export const makeAgentHarnessAdapter = Effect.fn("makeAgentHarnessAdapter")(func
       });
     });
   const stopAll: AgentHarnessAdapterShape["stopAll"] = () =>
-    Effect.forEach(Array.from(sessions.values()), closeSession, { discard: true });
+    Effect.forEach(
+      Array.from(sessions.keys()),
+      (threadId) =>
+        withThreadLock(
+          threadId,
+          Effect.gen(function* () {
+            const context = sessions.get(threadId);
+            if (context) yield* closeSession(context);
+          }),
+        ),
+      { discard: true },
+    );
   yield* Effect.addFinalizer(() =>
     stopAll().pipe(Effect.ignore, Effect.andThen(PubSub.shutdown(events))),
   );
